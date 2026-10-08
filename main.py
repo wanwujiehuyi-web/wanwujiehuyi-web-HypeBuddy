@@ -20,6 +20,8 @@ import os
 import re
 import sys
 import html
+import json
+import time
 import random
 
 import requests
@@ -516,10 +518,53 @@ if not API_KEY or "粘贴" in API_KEY:
 client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
 
 
+# ============================================================
+# 用量记账 —— 挂到公网之后，这是唯一一道真正跟钱挂钩的闸
+# ============================================================
+# 【为什么必须记】开了公网，每句话都是真金白银。
+# 不记账就不知道烧到哪儿了，也没法"到量自动停"。
+# 服务端每次都会回 usage（几个 token），这里把它累起来存盘 ——
+# 存盘是为了重启不归零，不然一重启账就白记了。
+USAGE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "usage.json")
+USAGE = {"in": 0, "out": 0, "calls": 0}
+
+
+def load_usage() -> dict:
+    try:
+        with open(USAGE_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+        for k in USAGE:
+            USAGE[k] = int(d.get(k, 0))
+    except Exception:
+        pass                      # 没文件 / 文件坏了，都当从零开始
+    return USAGE
+
+
+def save_usage() -> None:
+    try:
+        with open(USAGE_FILE, "w", encoding="utf-8") as f:
+            json.dump(USAGE, f)
+    except Exception:
+        pass                      # 记不上账不该影响聊天
+
+
+load_usage()
+
+
 def llm(messages, temperature=0.8):
     resp = client.chat.completions.create(
         model=MODEL, messages=messages, temperature=temperature
     )
+    # 记账。服务端没回 usage 就按字数粗估（一个汉字约一个 token）
+    try:
+        u = resp.usage
+        USAGE["in"] += int(u.prompt_tokens or 0)
+        USAGE["out"] += int(u.completion_tokens or 0)
+    except Exception:
+        USAGE["in"] += sum(len(str(m.get("content", ""))) for m in messages)
+        USAGE["out"] += len(resp.choices[0].message.content or "")
+    USAGE["calls"] += 1
+    save_usage()
     return resp.choices[0].message.content.strip()
 
 

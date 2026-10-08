@@ -67,23 +67,29 @@ body::after{
 .app{display:flex;height:100vh;position:relative;z-index:1}
 .main{flex:1;display:flex;flex-direction:column;min-width:0}
 
-/* ---------- 顶栏 ---------- */
+/* ---------- 顶栏 ----------
+   【改过，原来是 60% 白玻璃 + 模糊】那等于在照片上扣了块板子。
+   现在做成全透明 —— 顶栏不再是一块面板，就是漂在照片上的一层字，
+   照片从这儿直接透上来。底色、模糊、投影全部撤掉。
+   （跟底栏当初的处理是同一个道理：留字，不留板。） */
 header{
   position:relative;flex:none;
   padding:15px 24px 14px;
-  background:var(--glass);
-  backdrop-filter:var(--blur);
-  -webkit-backdrop-filter:var(--blur);
-  border-bottom:1px solid var(--line);
-  box-shadow:0 2px 18px rgba(70,52,26,.09);
+  background:none;
+  /* 分隔线和那道渐变金线也一并撤了 ——
+     顶栏既然不再是块面板，底下就不该再压两条悬空的线。
+     现在从上到下就一张照片，没有一条横杠打断它。 */
+  border-bottom:none;
 }
-/* 顶栏底下压一道细金线，提亮整块面板 */
-header::after{
-  content:"";position:absolute;left:0;right:0;bottom:-1px;height:2.5px;
-  background:linear-gradient(90deg,transparent,var(--vinegar-lit),var(--caiting),transparent);
-  opacity:.5;
+.brand{
+  display:flex;align-items:center;gap:15px;
+  /* 顶栏没底色了，字直接压在照片上 ——
+     加一层白晕当底，压在深色的树、山、江面上照样读得清。
+     跟底部那行提示用的是同一招（见 .hint）。 */
+  text-shadow:0 1px 3px rgba(255,255,255,.95),
+              0 0 10px rgba(255,255,255,.85),
+              0 0 20px rgba(255,255,255,.6);
 }
-.brand{display:flex;align-items:center;gap:15px}
 /* 头像：全身像，所以是竖版圆角矩形，不是圆的 */
 .face{
   width:60px;height:84px;flex:none;border-radius:15px;
@@ -386,6 +392,76 @@ footer{
   border-bottom:1px dashed rgba(168,108,21,.55);
 }
 
+/* ---------- 邀请看风景：贴在小传最后的一张卡 ---------- */
+.invite{margin-top:14px;padding-top:13px;border-top:1px dashed rgba(120,95,60,.28)}
+.invite .ask{font-size:14.5px;margin:0 0 11px}
+.invite .btns{display:flex;gap:10px}
+.invite button{
+  cursor:pointer;border-radius:999px;padding:9px 24px;
+  font-family:var(--font);font-size:14px;letter-spacing:.5px;
+  transition:all .18s ease;
+}
+.invite .no{
+  background:rgba(255,255,255,.55);color:var(--ink-2);
+  border:1px solid rgba(120,95,60,.25);
+}
+.invite .no:hover{color:var(--ink);border-color:var(--line-2);background:rgba(255,255,255,.75)}
+.invite .yes{
+  background:linear-gradient(135deg,#cb9130,#9d6410);
+  border:1px solid transparent;color:#fffdf8;font-weight:700;
+  box-shadow:0 4px 14px rgba(150,95,15,.34);
+}
+.invite .yes:hover{filter:brightness(1.08);transform:translateY(-1px);
+  box-shadow:0 6px 18px rgba(150,95,15,.44)}
+
+/* ---------- 看风景：全屏灯箱 ----------
+   照片是主角，所以压暗整个屏，让它一个人站中间。
+   左右翻页、右上角关掉，方向键和 Esc 也能用。 */
+.shots{
+  position:fixed;inset:0;z-index:50;display:none;
+  align-items:center;justify-content:center;
+  background:rgba(22,16,9,.88);
+  backdrop-filter:blur(16px) saturate(1.15);
+  -webkit-backdrop-filter:blur(16px) saturate(1.15);
+  animation:fadein .22s ease both;
+}
+.shots.on{display:flex}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+
+.shots .frame{display:flex;flex-direction:column;align-items:center;gap:13px;max-width:92vw}
+/* 宽度留到 88vw，两边各留 6vw 给翻页按钮站 ——
+   不然宽屏上照片会铺到贴边，箭头压在照片上不好看 */
+.shots img{
+  max-width:88vw;max-height:74vh;object-fit:contain;
+  border-radius:12px;border:1px solid rgba(255,255,255,.16);
+  box-shadow:0 22px 70px rgba(0,0,0,.62);
+}
+.shots .cap{
+  color:#f4eee3;font-size:14.5px;line-height:1.75;text-align:center;
+  max-width:80vw;
+  /* 照片有亮有暗，字光靠白色不行，压一层黑影才稳 */
+  text-shadow:0 1px 6px rgba(0,0,0,.85),0 0 18px rgba(0,0,0,.55);
+}
+.shots .cap b{color:var(--vinegar-lit)}
+.shots .num{color:rgba(244,238,227,.5);font-size:12.5px;letter-spacing:2px}
+
+.shots button{
+  position:absolute;z-index:2;cursor:pointer;
+  width:48px;height:48px;border-radius:50%;
+  display:grid;place-items:center;
+  border:1px solid rgba(255,255,255,.28);
+  background:rgba(255,255,255,.13);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  color:#fff;font-size:22px;line-height:1;
+  transition:background .18s ease, transform .18s ease;
+}
+.shots button:hover{background:rgba(255,255,255,.27)}
+.shots .prev{left:18px;top:50%;transform:translateY(-50%)}
+.shots .next{right:18px;top:50%;transform:translateY(-50%)}
+.shots .prev:hover,.shots .next:hover{transform:translateY(-50%) scale(1.09)}
+.shots .close{right:18px;top:18px;width:40px;height:40px;font-size:16px}
+.shots .close:hover{transform:scale(1.09)}
+
 /* ---------- 窄屏 ---------- */
 @media (max-width:820px){
   .row{max-width:93%}
@@ -398,6 +474,13 @@ footer{
   body{background-position:78% 40%}
   .face{width:46px;height:64px}
   .seal{width:42px;height:42px;font-size:14px}
+  /* 窄屏上翻页按钮缩一圈、贴边站，别压着照片 */
+  .shots img{max-width:96vw;max-height:64vh}
+  .shots .cap{max-width:94vw;font-size:13.5px}
+  .shots button{width:40px;height:40px;font-size:19px}
+  .shots .prev{left:6px}
+  .shots .next{right:6px}
+  .shots .close{right:6px;top:6px;width:36px;height:36px}
 }
 </style>
 </head>
@@ -427,6 +510,7 @@ footer{
         <span><b>回车</b> 发送</span>
         <span><b>试试</b> 「三汇今天天气咋样」「今天有啥子新闻」「我叫小李」</span>
         <span class="btns">
+          <button class="memtoggle" id="shotsToggle" title="看看三汇的风景">📷 风景</button>
           <button class="memtoggle" id="introToggle" title="再听一遍三汇的小传">🏞 三汇</button>
           <button class="memtoggle" id="memToggle" title="看看它记住了你啥子">🧠 记忆</button>
         </span>
@@ -437,6 +521,18 @@ footer{
   <!-- 侧栏已经删掉了。记忆改在聊天里以"记忆卡片"的形式出现，
        原因：侧栏常驻太占地方，而聊天里冒出来的东西更有"它真的记住了"的感觉 -->
 
+</div>
+
+<!-- 看风景的全屏灯箱。放在 .app 外面，免得被布局挤到 -->
+<div class="shots" id="shots">
+  <button class="prev" id="shotPrev" title="上一张">‹</button>
+  <div class="frame">
+    <img id="shotImg" alt="">
+    <div class="cap" id="shotCap"></div>
+    <div class="num" id="shotNum"></div>
+  </div>
+  <button class="next" id="shotNext" title="下一张">›</button>
+  <button class="close" id="shotClose" title="关掉">✕</button>
 </div>
 
 <script>
@@ -452,6 +548,28 @@ const sendBtn = document.getElementById('send');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+/* ---------- 访客自己的随机身份 ----------
+   服务端靠它分出"谁是谁的记忆"。
+   【为什么需要】挂到公网后，所有人共用一份记忆会串得一塌糊涂：
+     小李说了"我叫小李" → 张三问"我叫啥子" → 它答"你叫小李"
+   所以每个浏览器生成一个随机 id 存在自己本地，每次请求带上去。
+   【不用 IP 的原因】同一个 WiFi（比如学校机房）出去是同一个公网 IP，
+   按 IP 分会把一屋子人并成一份，等于没分。
+   【想换个身份】清一下浏览器数据就行。 */
+const VISITOR = (() => {
+  const KEY = 'sanhui_visitor_id';
+  try{
+    let v = localStorage.getItem(KEY);
+    if (!v){
+      v = (window.crypto && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : Math.random().toString(36).slice(2) + Date.now().toString(36);
+      localStorage.setItem(KEY, v);
+    }
+    return v;
+  }catch(e){ return ''; }   // 无痕模式下拿不到 localStorage，退回默认那份
+})();
 
 /* 两个头像。搭子用 assets/avatar.svg，想换图直接替换那个文件就行 */
 const FACE_BOT = '<img src="/assets/avatar" alt="">';
@@ -515,7 +633,7 @@ async function send(){
     const start = await fetch('/api/chat', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({q})
+      body: JSON.stringify({q, v: VISITOR})
     }).then(r => r.json());
 
     if (start.error) throw new Error(start.error);
@@ -582,7 +700,7 @@ function clearMemos(){
 /* 打开开关：把已有的记忆一次性铺出来 */
 async function showAllMemos(){
   try{
-    const d = await fetch('/api/memory').then(r => r.json());
+    const d = await fetch('/api/memory?v=' + encodeURIComponent(VISITOR)).then(r => r.json());
     seenFacts = d.facts.length;
     if (!d.facts.length){
       addMemo('还啥子都没记住。跟它说两句你的事嘛，比如「我叫小李，在三汇开面馆」。');
@@ -604,7 +722,7 @@ async function toggleMemory(){
 async function checkMemory(){
   if (!showMemory) return;
   try{
-    const d = await fetch('/api/memory').then(r => r.json());
+    const d = await fetch('/api/memory?v=' + encodeURIComponent(VISITOR)).then(r => r.json());
     const fresh = d.facts.slice(seenFacts);
     seenFacts = d.facts.length;
     fresh.slice(0, 3).forEach(f => addMemo(`记住了 <b>${esc(f.fact)}</b>`));
@@ -708,6 +826,109 @@ function showIntro(){
   return row;
 }
 
+/* ---------- 三汇的风景 ----------
+   十张照片，配一句本地人的话。
+   图片放在 assets/scenery/，走跟头像同一条路（webui.py 的 /assets/ 处理），
+   那边有防目录穿越，安全。 */
+const SHOTS = [
+  {src:'/assets/scenery/01-panorama.png',
+   cap:'从山上往下看，我们镇就是这么个样子 —— 江从城中间穿过去'},
+  {src:'/assets/scenery/02-aerial.png',
+   cap:'飞到天上就看得明白了：<b>巴河、州河在这儿碰头，合成渠江</b>。三汇这个名，就是这么来的'},
+  {src:'/assets/scenery/03-riverside.png',
+   cap:'江边。我们这儿湿气重，山里头早上都是雾'},
+  {src:'/assets/scenery/04-bend.png',
+   cap:'渠江在这儿拐了个大弯，雾一起来跟画一样'},
+  {src:'/assets/scenery/05-caiting-crowd.png',
+   cap:'农历三月十八，<b>彩亭会</b>。满街都是人，挤都挤不动'},
+  {src:'/assets/scenery/06-caiting.png',
+   cap:'彩亭离近了看 —— 台面不过四平方米，人摞到八九米高，扮戏的是镇上小娃儿'},
+  {src:'/assets/scenery/07-dew.jpg',
+   cap:'草叶上的露水。三汇的早上，到处都是这个'},
+  {src:'/assets/scenery/08-cloudsea.jpg',
+   cap:'山上的云海。牛乃尖那一线，海拔八百到一千米'},
+  {src:'/assets/scenery/09-mist.jpg',
+   cap:'雾从山沟里漫出来，一个早上的事'},
+  {src:'/assets/scenery/10-clouds.jpg',
+   cap:'云压得这么低，看这个天色是要落雨了'}
+];
+
+let shotIdx = 0;
+
+function showShot(i){
+  shotIdx = (i + SHOTS.length) % SHOTS.length;      // 绕圈，从最后一张往下翻会回到第一张
+  const s = SHOTS[shotIdx];
+  const img = document.getElementById('shotImg');
+  img.src = s.src;
+  img.alt = '三汇风景';
+  document.getElementById('shotCap').innerHTML = s.cap;
+  document.getElementById('shotNum').textContent = (shotIdx + 1) + ' / ' + SHOTS.length;
+}
+
+function openShots(i){
+  showShot(i || 0);
+  document.getElementById('shots').classList.add('on');
+  document.body.style.overflow = 'hidden';   // 灯箱开着的时候，底下的页面别跟着滚
+}
+
+function closeShots(){
+  document.getElementById('shots').classList.remove('on');
+  document.body.style.overflow = '';
+}
+
+document.getElementById('shotPrev').addEventListener('click', () => showShot(shotIdx - 1));
+document.getElementById('shotNext').addEventListener('click', () => showShot(shotIdx + 1));
+document.getElementById('shotClose').addEventListener('click', closeShots);
+/* 点照片外头的黑底也能关 —— 大家的肌肉记忆都是这样 */
+document.getElementById('shots').addEventListener('click', e => {
+  if (e.target.id === 'shots') closeShots();
+});
+/* 键盘：Esc 关，左右方向键翻 */
+document.addEventListener('keydown', e => {
+  if (!document.getElementById('shots').classList.contains('on')) return;
+  if (e.key === 'Escape') closeShots();
+  else if (e.key === 'ArrowLeft') showShot(shotIdx - 1);
+  else if (e.key === 'ArrowRight') showShot(shotIdx + 1);
+});
+
+/* 介绍完顺口问一句 —— 【只有头一回来才问】，回头客不再打扰 */
+const SCENERY_KEY = 'sanhui_scenery_asked_v1';
+
+function maybeAskScenery(){
+  let asked = false;
+  try { asked = !!localStorage.getItem(SCENERY_KEY); } catch(e){}
+  if (asked) return;
+  try { localStorage.setItem(SCENERY_KEY, '1'); } catch(e){}
+
+  const row = addRow('bot', `
+    <div class="invite" id="invite">
+      <div class="ask">光听我讲，你可能还没得感觉 —— <b>要不要我带你看看三汇的风景？</b></div>
+      <div class="btns">
+        <button class="no" id="invNo">算了</button>
+        <button class="yes" id="invYes">要得</button>
+      </div>
+    </div>`);
+  row.classList.add('intro-row');          // 跟小传同宽，读起来是一段
+
+  row.querySelector('#invNo').addEventListener('click', () => {
+    const inv = document.getElementById('invite');
+    if (inv) inv.innerHTML =
+      '<div class="ask" style="margin:0">要得嘛。想看了随时点右下角「📷 风景」。</div>';
+  });
+
+  row.querySelector('#invYes').addEventListener('click', () => {
+    const inv = document.getElementById('invite');
+    if (inv) inv.innerHTML =
+      '<div class="ask" style="margin:0">来嘛，我给你一张一张地摆 ——</div>';
+    setTimeout(() => openShots(0), 300);
+  });
+
+  // 问完把这张卡滚进视野，别让人还得自己往下翻
+  chat.style.scrollBehavior = 'auto';
+  chat.scrollTop = Math.max(0, row.offsetTop - chat.offsetTop - 20);
+  chat.style.removeProperty('scroll-behavior');
+}
+
 /* 首次访问判定。localStorage 在无痕模式下会抛异常，包一层别让它把页面搞挂 */
 const SEEN_KEY = 'sanhui_intro_seen_v1';
 let seen = false;
@@ -722,12 +943,18 @@ if (seen){
 } else {
   showIntro();
   try { localStorage.setItem(SEEN_KEY, '1'); } catch(e){}
+  /* 【只在头一回问】介绍完顺口问一句要不要看风景。
+     回头客走上面那条分支，永远不会被问第二遍。 */
+  maybeAskScenery();
 }
 
 document.getElementById('introToggle').addEventListener('click', () => {
   showIntro();
   input.focus();
 });
+
+/* 右下角那个「📷 风景」—— 跟「三汇」「记忆」并排，想看的自己点 */
+document.getElementById('shotsToggle').addEventListener('click', () => openShots(0));
 
 input.focus();
 </script>

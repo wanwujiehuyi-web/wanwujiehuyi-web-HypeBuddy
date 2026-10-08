@@ -32,6 +32,7 @@ import time
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -69,9 +70,13 @@ def _set_status(text):
 agent_main.STATUS_HOOK = _set_status
 
 
-def run_job(job_id, question):
+def run_job(job_id, question, visitor=None):
     """在后台线程里跑一次完整对话"""
     _local.job_id = job_id
+    # 【隔离】这一轮只认这个访客自己的那份记忆。
+    # 不切换的话，所有人的对话会写进同一个 memory.json，
+    # 张三问"我叫啥子"，它会把李四的名字答出来。
+    memory.use(visitor)
     try:
         with AGENT_LOCK:
             mem = memory.load()
@@ -105,6 +110,42 @@ def run_job(job_id, question):
         with JOBS_LOCK:
             JOBS.pop(job_id, None)
     threading.Thread(target=_gc, daemon=True).start()
+
+
+# ============================================================
+# 总花费闸 —— 【不限制个人，只限制总共烧多少】
+# ============================================================
+# 【为什么不做按人限流】我先做了一版"每人每分钟 5 句"，测的时候发现坑：
+#   同一个 WiFi（学校机房、宿舍）出去是【同一个公网 IP】。
+#   按 IP 算，一屋子人会被并成一个"人" ——
+#   一个人多问两句，全班都被拦，演示当场就黄。
+#   按访客 id 算又拦不住存心伪造 id 的。
+#   干脆不做个人限制：谁都能随便问，只在【总量】上设一道闸。
+#
+# 【闸设在 token 上，不是句数上】句数跟钱没有直接关系 ——
+#   一句"你好"和一次深度调研，差着几十倍。
+#   所以直接盯 token：到量自动停止服务。
+#   真实用量记在 usage.json 里（main.py 的 llm() 每次调用都记），
+#   存盘所以重启不归零。
+TOKEN_BUDGET = 500_000_000     # 五亿 tokens，烧到这条线自动停
+
+# 同时排队的活儿最多几个。这不是个人配额，是防机器被压垮 ——
+# 智能本来一次只跑一个任务，排太多线程只会把电脑拖死。
+MAX_QUEUE = 3
+
+
+def tokens_used() -> int:
+    u = getattr(agent_main, "USAGE", {}) or {}
+    return int(u.get("in", 0)) + int(u.get("out", 0))
+
+
+def budget_left() -> int:
+    return max(0, TOKEN_BUDGET - tokens_used())
+
+
+def queue_len() -> int:
+    with JOBS_LOCK:
+        return sum(1 for j in JOBS.values() if not j.get("done"))
 
 
 # ============================================================
@@ -183,12 +224,14 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/memory":
-            mem = memory.load()
+            # 只给这个访客自己的记忆 —— 别人的看不见
+            qs = parse_qs(urlparse(self.path).query)
+            v = (qs.get("v") or [""])[0].strip() or None
+            mem = memory.load(v)
             self._json({"facts": mem.get("facts", [])})
             return
 
         if path == "/api/status":
-            from urllib.parse import urlparse, parse_qs
             qs = parse_qs(urlparse(self.path).query)
             jid = (qs.get("id") or [""])[0]
             with JOBS_LOCK:
@@ -211,6 +254,7 @@ class Handler(BaseHTTPRequestHandler):
             n = int(self.headers.get("Content-Length", 0))
             data = json.loads(self.rfile.read(n).decode("utf-8"))
             question = (data.get("q") or "").strip()
+            visitor = (data.get("v") or "").strip() or None   # 访客自己的随机 id
         except Exception:
             self._json({"error": "请求格式不对"}, 400)
             return
@@ -219,11 +263,20 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "你啥子都没说噻"}, 400)
             return
 
+        # 【总花费闸】拦在开线程之前 —— 到量了一分钱都不再花
+        if tokens_used() >= TOKEN_BUDGET:
+            self._json({"error": "这台搭子先歇了，额度用完咯 🙏"}, 503)
+            return
+        if queue_len() >= MAX_QUEUE:
+            self._json({"error": "前头还有人在问，缓一下再发嘛 😅"}, 429)
+            return
+
         jid = uuid.uuid4().hex
         with JOBS_LOCK:
             JOBS[jid] = {"status": "🔥 正在起锅…", "done": False}
 
-        threading.Thread(target=run_job, args=(jid, question), daemon=True).start()
+        threading.Thread(target=run_job, args=(jid, question, visitor),
+                         daemon=True).start()
         self._json({"id": jid})
 
 
@@ -253,6 +306,11 @@ def main():
     print("=" * 60)
     print(f"  界面跑起来了： {url}")
     print(f"  要关掉就按     Ctrl + C")
+    used, left = tokens_used(), budget_left()
+    pct = (used / TOKEN_BUDGET * 100) if TOKEN_BUDGET else 0
+    print("-" * 60)
+    print(f"  💰 已烧 {used:,} tokens（占额度 {pct:.2f}%）")
+    print(f"     还剩 {left:,}，烧完自动停止服务")
     print("=" * 60)
     print()
 

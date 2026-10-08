@@ -29,6 +29,7 @@ import re
 import sys
 import json
 import datetime
+import threading
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -41,6 +42,49 @@ MEMORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory.j
 # 短期记忆保留多少轮对话（一轮 = 一问一答）
 SHORT_TERM_TURNS = 6
 
+# ============================================================
+# 【多人共用一个实例时】每个访客一份独立记忆
+# ============================================================
+# 【为什么必须隔离】单机自己用的时候，记忆就一份，天经地义。
+#   但把网页版挂到公网之后，所有人共用同一份记忆会出大事：
+#     小李说"我叫小李，在三汇开面馆" → 存进记忆
+#     张三问"我叫啥子"             → 按相关度一捞 → 答"你叫小李"
+#   这不是理论风险：recall() 的关键字重合算法恰好能命中这种问法，
+#   百分之百会串。
+#
+# 【怎么隔离】浏览器生成一个随机 ID 存在自己本地，每次请求带上来。
+#   服务端按这个 ID 分文件存：memory.d/<id>.json
+#   各人记各人的，谁也不看见谁。
+#
+# 【为什么不用 IP】同一个 WiFi（比如学校机房）出去是同一个公网 IP，
+#   按 IP 分会把一屋子人并成一份记忆，等于没分。
+#
+# 【终端模式怎么办】不调 use()，key 就是 None，还是用原来的 memory.json ——
+#   命令行一个人用，行为跟以前一模一样。
+MEMORY_DIR = os.path.join(os.path.dirname(MEMORY_FILE), "memory.d")
+
+_ctx = threading.local()
+
+
+def use(key):
+    """切换当前线程用哪份记忆。key=None 表示用默认的那份。"""
+    _ctx.key = key
+
+
+def _current_key():
+    return getattr(_ctx, "key", None)
+
+
+def _path_for(key) -> str:
+    """把访客 id 变成一个安全的文件名 —— 不能让它拼出路径穿越"""
+    if not key:
+        return MEMORY_FILE
+    safe = re.sub(r"[^A-Za-z0-9_-]", "", str(key))[:32]
+    if not safe:
+        return MEMORY_FILE
+    os.makedirs(MEMORY_DIR, exist_ok=True)
+    return os.path.join(MEMORY_DIR, f"{safe}.json")
+
 
 # ============================================================
 # 一、读写记忆
@@ -49,12 +93,16 @@ def _empty():
     return {"facts": [], "turns": []}
 
 
-def load() -> dict:
-    """读记忆文件。不存在或者坏了，就返回空壳（不能让它把程序搞崩）"""
-    if not os.path.exists(MEMORY_FILE):
+def load(key=None) -> dict:
+    """
+    读记忆文件。不存在或者坏了，就返回空壳（不能让它把程序搞崩）。
+    key 不给就用当前线程切换的那份（见上面的 use()）。
+    """
+    path = _path_for(_current_key() if key is None else key)
+    if not os.path.exists(path):
         return _empty()
     try:
-        with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         data.setdefault("facts", [])
         data.setdefault("turns", [])
@@ -63,11 +111,12 @@ def load() -> dict:
         return _empty()
 
 
-def save(mem: dict) -> None:
+def save(mem: dict, key=None) -> None:
     """存记忆"""
     # 短期记忆不能无限长，只留最近 N 轮
     mem["turns"] = mem["turns"][-SHORT_TERM_TURNS * 2:]
-    with open(MEMORY_FILE, "w", encoding="utf-8") as f:
+    path = _path_for(_current_key() if key is None else key)
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(mem, f, ensure_ascii=False, indent=2)
 
 
