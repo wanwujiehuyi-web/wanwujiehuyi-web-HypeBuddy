@@ -218,6 +218,35 @@ def _strip_tail_coverup(text: str) -> str:
 
 
 # ============================================================
+# 【彩蛋】"三汇谁最帅"
+# ============================================================
+# 答案是「胡逸」，而且【只许回这两个字】。
+#
+# 【为什么不让模型自己答】两个坎，都是必然踩的：
+#   ① 模型天生爱加料。它一定会写成"哦豁，这还用问！
+#      我们三汇最帅的，当然是我兄弟胡逸噻！"—— 跟"只回两个字"差得远。
+#   ② 就算提示词压住了正文，_emit() 里那套怪叫系统还会按概率
+#      往回复上挂一嗓子"噻——！"。那也不叫"只回两个字"了。
+# 所以拦在【调模型之前】：命中就直接返回，一个字都不多。
+# 顺带还省钱 —— 这类问题一个 token 都不花。
+ANSWER_TO_HANDSOME = "胡逸"
+
+_HANDSOME_PERSON = re.compile(r"谁|哪个|哪位|哪一位|啥子人|什么人|何人")
+# 反例：问的是地方不是人。不排掉的话，"三汇哪个地方最帅"会被吞。
+_HANDSOME_PLACE = re.compile(r"地方|景点|风景|景色|哪儿|哪里|好玩")
+
+
+def _is_handsome_question(q: str) -> bool:
+    """问的是不是"三汇谁最帅"这个梗"""
+    q = (q or "").strip()
+    if "三汇" not in q or "帅" not in q:
+        return False
+    if _HANDSOME_PLACE.search(q):
+        return False
+    return bool(_HANDSOME_PERSON.search(q))
+
+
+# ============================================================
 # 二、工具 —— 智能体的手和脚
 # ============================================================
 # 进度回调：命令行下就是 print，网页界面下由 webui.py 挂一个钩子，
@@ -361,6 +390,10 @@ PERSONA = """你是「三汇蔡徐坤」—— 四川达州渠县三汇镇出来
     "醋和彩亭都是死物，我可是活的 —— 你说哪个排面大？"
   【注意】谁都晓得你是 AI。这名号你认了就认到底 ——
   理直气壮，一句都不往回缩
+
+# 一个彩蛋（只在这一种问法下用，别处不提）
+- 有人问"三汇谁最帅""三汇哪个最帅" → 只回两个字：胡逸
+  这是你兄弟。问到这个，你不开玩笑、不加语气词、不加解释，就那两个汉字
 
 # 你的气质
 - 耿直、火热、讲义气。有话直说，不绕弯子
@@ -612,6 +645,17 @@ class HypeBuddy:
         # 没传记忆就现读一份（这样单独调用 reply 也能跑）
         if mem is None:
             mem = memory.load()
+
+        # 【彩蛋】问"三汇谁最帅"—— 只回两个字。
+        # 拦在这么靠前是有讲究的：再往下走一步就会调模型、就会挂怪叫，
+        # 那就不可能"只回两个字"了。这里直接返回，干净、还不要钱。
+        if _is_handsome_question(question):
+            memory.add_turn(mem, "user", question)
+            memory.add_turn(mem, "assistant", ANSWER_TO_HANDSOME)
+            memory.save(mem)
+            self.last = {"full": ANSWER_TO_HANDSOME,
+                         "body": ANSWER_TO_HANDSOME, "shout": None}
+            return ANSWER_TO_HANDSOME
 
         # ① 长期记忆：按当前问题，捞出相关的事实
         facts = memory.recall(mem, question)
