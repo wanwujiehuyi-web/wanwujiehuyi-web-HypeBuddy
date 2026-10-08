@@ -149,6 +149,110 @@ def queue_len() -> int:
 
 
 # ============================================================
+# 来访统计 —— 想知道有几个人点进来
+# ============================================================
+# 【为什么单独记一笔】页面加载（GET /）本身不带访客 id，
+#   光数请求次数分不清"一个人刷了十次"和"十个人各来一次"。
+#   所以前端加载完会打一个信标过来（/api/visit），带上自己的随机 id。
+#   按 id 去重，才是真的"几个人"。
+#
+# 【隐私注意】这个文件里存着人家的 IP，跟 memory.json 一个性质，
+#   已经写进 .gitignore，不会传到仓库。
+VISIT_FILE = os.path.join(HERE, "visits.jsonl")
+_visit_lock = threading.Lock()
+
+
+def _peer_ip(handler) -> str:
+    """访客的真实 IP。走隧道时请求是从本机进来的，
+    client_address 永远是 127.0.0.1，真 IP 在 CF-Connecting-IP 头里"""
+    for h in ("CF-Connecting-IP", "X-Real-IP"):
+        v = handler.headers.get(h)
+        if v:
+            return v.strip()
+    xff = handler.headers.get("X-Forwarded-For")
+    if xff:
+        return xff.split(",")[0].strip()
+    return handler.client_address[0]
+
+
+def record_visit(visitor: str, ip: str, ua: str) -> None:
+    """记一笔来访。一行一个 JSON —— 追加写，某一行坏了不影响别的行"""
+    rec = {
+        "t": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "day": time.strftime("%Y-%m-%d"),
+        "v": (visitor or "").strip()[:32],
+        "ip": ip,
+        "ua": (ua or "")[:70],
+    }
+    try:
+        with _visit_lock:
+            with open(VISIT_FILE, "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass          # 统计失败绝不能影响人家聊天
+
+
+def visit_stats() -> dict:
+    """统计：今天几个、累计几个。按访客 id 去重，拿不到 id 的退回按 IP"""
+    today = time.strftime("%Y-%m-%d")
+    days, every, today_set = {}, set(), set()
+    try:
+        with open(VISIT_FILE, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except Exception:
+                    continue
+                key = r.get("v") or ("ip:" + r.get("ip", ""))
+                d = r.get("day", "")
+                days.setdefault(d, set()).add(key)
+                every.add(key)
+                if d == today:
+                    today_set.add(key)
+    except FileNotFoundError:
+        pass
+    return {"today": len(today_set), "total": len(every), "days": days}
+
+
+def _stats_html() -> str:
+    """一个给自己看的小页面。做得糙一点没关系，能看懂就行"""
+    s = visit_stats()
+    rows = "".join(
+        f"<tr><td>{d}</td><td>{len(s['days'][d])}</td></tr>"
+        for d in sorted(s["days"], reverse=True)[:14]
+    ) or "<tr><td colspan=2>还没有人来过</td></tr>"
+    return f"""<!DOCTYPE html><html lang="zh-CN"><head>
+<meta charset="utf-8"><title>来访统计</title>
+<style>
+ body{{font-family:"Microsoft YaHei",sans-serif;background:#faf6ef;color:#33281a;
+      max-width:620px;margin:44px auto;padding:0 20px}}
+ h1{{font-size:20px;letter-spacing:1px}}
+ .big{{display:flex;gap:18px;margin:26px 0}}
+ .card{{flex:1;background:#fff;border-radius:14px;padding:22px 10px;
+       box-shadow:0 4px 18px rgba(70,52,26,.10);text-align:center}}
+ .card .n{{font-size:40px;font-weight:700;color:#a86c15;line-height:1.1}}
+ .card .t{{font-size:13px;color:#7d6b53;margin-top:8px}}
+ table{{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;
+       overflow:hidden;box-shadow:0 4px 18px rgba(70,52,26,.08)}}
+ th,td{{padding:11px 18px;text-align:left;font-size:14px;
+       border-bottom:1px solid #f0e9dd}}
+ th{{background:#f6f0e6;color:#7d6b53;font-size:13px}}
+ .tip{{color:#a1917a;font-size:12.5px;margin-top:20px;line-height:1.9}}
+</style></head><body>
+<h1>三汇蔡徐坤 · 来访统计</h1>
+<div class="big">
+  <div class="card"><div class="n">{s['today']}</div><div class="t">今天来的</div></div>
+  <div class="card"><div class="n">{s['total']}</div><div class="t">累计来过</div></div>
+</div>
+<table><tr><th>日期</th><th>来了几个</th></tr>{rows}</table>
+<p class="tip">
+按浏览器去重 —— 同一个人换台设备算两个，清了浏览器数据也算新的。<br>
+这个页面【只在你自己电脑上打得开】，公网地址上来的人看不到。
+</p>
+</body></html>"""
+
+
+# ============================================================
 # HTTP 服务
 # ============================================================
 class Handler(BaseHTTPRequestHandler):
@@ -221,6 +325,27 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(200, f.read(), ctype)
             else:
                 self._send(404, b"not found", "text/plain")
+            return
+
+        if path == "/api/visit":
+            # 前端一加载完就打这个信标过来，带上自己的随机 id。
+            # 【为什么用 204 空响应】它是个"打个招呼就走"的请求，
+            #   不需要任何返回值，越轻越好。
+            qs = parse_qs(urlparse(self.path).query)
+            v = (qs.get("v") or [""])[0]
+            record_visit(v, _peer_ip(self), self.headers.get("User-Agent", ""))
+            self._send(204, b"", "text/plain")
+            return
+
+        if path == "/stats":
+            # 【只给本机看】走公网隧道进来的请求，一定带着 CF-Connecting-IP。
+            #   带着，就说明是外头的人 —— 不给看，免得来访记录被别人翻。
+            if (self.headers.get("CF-Connecting-IP")
+                    or self.headers.get("X-Forwarded-For")):
+                self._send(404, b"not found", "text/plain")
+                return
+            self._send(200, _stats_html().encode("utf-8"),
+                       "text/html; charset=utf-8")
             return
 
         if path == "/api/memory":
@@ -311,6 +436,9 @@ def main():
     print("-" * 60)
     print(f"  💰 已烧 {used:,} tokens（占额度 {pct:.2f}%）")
     print(f"     还剩 {left:,}，烧完自动停止服务")
+    vs = visit_stats()
+    print(f"  👀 今天来过 {vs['today']} 个人，累计 {vs['total']} 个")
+    print(f"     看细节： {url}stats")
     print("=" * 60)
     print()
 

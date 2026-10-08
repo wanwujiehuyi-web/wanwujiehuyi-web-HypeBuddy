@@ -571,6 +571,12 @@ const VISITOR = (() => {
   }catch(e){ return ''; }   // 无痕模式下拿不到 localStorage，退回默认那份
 })();
 
+/* 打个信标告诉服务端"有人来了"。
+   【为什么要这一下】页面加载本身不带访客 id，服务端光数请求次数
+   分不清"一个人刷了十次"和"十个人各来一次"。带上 id 才数得准。
+   失败也无所谓 —— 统计而已，绝不能影响人家聊天。 */
+fetch('/api/visit?v=' + encodeURIComponent(VISITOR)).catch(() => {});
+
 /* 两个头像。搭子用 assets/avatar.svg，想换图直接替换那个文件就行 */
 const FACE_BOT = '<img src="/assets/avatar" alt="">';
 const FACE_ME  = '👤';
